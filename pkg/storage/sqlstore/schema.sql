@@ -1,0 +1,63 @@
+-- ============================================================================
+-- FreeJobScheduler ANSI-SQL Standard Schema (ODBC / Enterprise RDBMS Compatible)
+-- Compliant with: Oracle, PostgreSQL, Tibero, MSSQL, MariaDB, SQLite
+-- ============================================================================
+
+-- 1. Job Definitions (Templates & Schedule)
+CREATE TABLE FJS_JOB_DEF (
+    JOB_DEF_ID    VARCHAR(64)   NOT NULL,
+    JOB_NAME      VARCHAR(128)  NOT NULL,
+    JOB_GROUP     VARCHAR(64)   NOT NULL,
+    CRON_EXPR     VARCHAR(64),
+    COMMAND       VARCHAR(1024) NOT NULL,
+    ARGS_JSON     TEXT,
+    ENV_JSON      TEXT,
+    AGENT_LABELS  VARCHAR(256),
+    IN_CONDS      TEXT,
+    OUT_CONDS     TEXT,
+    TIMEOUT_SEC   INT           DEFAULT 0,
+    ENABLED       SMALLINT      DEFAULT 1,
+    CREATED_AT    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    UPDATED_AT    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT PK_FJS_JOB_DEF PRIMARY KEY (JOB_DEF_ID)
+);
+
+-- 2. Job Run Instances (Runtime state & dispatch queue)
+CREATE TABLE FJS_JOB_RUN (
+    RUN_ID        VARCHAR(64)   NOT NULL,
+    JOB_DEF_ID    VARCHAR(64)   NOT NULL,
+    JOB_NAME      VARCHAR(128)  NOT NULL,
+    STATE         VARCHAR(32)   NOT NULL,
+    AGENT_ID      VARCHAR(64),
+    COMMAND       VARCHAR(1024) NOT NULL,
+    ARGS_JSON     TEXT,
+    ENV_JSON      TEXT,
+    EXIT_CODE     INT           DEFAULT -1,
+    SCHEDULED_AT  TIMESTAMP     NOT NULL,
+    STARTED_AT    TIMESTAMP,
+    FINISHED_AT   TIMESTAMP,
+    CREATED_DATE  VARCHAR(8)    NOT NULL, -- YYYYMMDD (ODATE)
+    ERROR_MSG     VARCHAR(1024),
+    CONSTRAINT PK_FJS_JOB_RUN PRIMARY KEY (RUN_ID)
+);
+
+CREATE INDEX IDX_FJS_RUN_CLAIM ON FJS_JOB_RUN (STATE, CREATED_DATE, SCHEDULED_AT);
+
+-- 3. In/Out Dependency Conditions
+CREATE TABLE FJS_CONDITION (
+    COND_NAME     VARCHAR(128)  NOT NULL,
+    ODATE         VARCHAR(8)    NOT NULL, -- YYYYMMDD
+    CREATED_AT    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT PK_FJS_COND PRIMARY KEY (COND_NAME, ODATE)
+);
+
+-- 4. Audit Trail (Immutable operator actions: Set OK, Bypass, Rerun)
+CREATE TABLE FJS_AUDIT (
+    AUDIT_ID      VARCHAR(64)   NOT NULL,
+    OPERATOR_ID   VARCHAR(64)   NOT NULL,
+    ACTION        VARCHAR(32)   NOT NULL,
+    TARGET_ID     VARCHAR(64)   NOT NULL,
+    REASON        VARCHAR(512)  NOT NULL,
+    CREATED_AT    TIMESTAMP     DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT PK_FJS_AUDIT PRIMARY KEY (AUDIT_ID)
+);

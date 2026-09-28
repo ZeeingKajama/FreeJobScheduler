@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FreeJobScheduler Workload Console</title>
+  <link rel="stylesheet" href="/static/style.css?v=2.0.0" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Pretendard:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="dark-theme">
+  <!-- Top Compact Header (44px) -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-logo">
+        <span class="pulse-dot"></span>
+        <h1>FreeJobScheduler</h1>
+      </div>
+      <span class="badge badge-version">v2.0 (High-Concurrency)</span>
+    </div>
+
+    <!-- Center Instant Search Bar with Shortcut / -->
+    <div class="header-search">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="globalSearch" placeholder="작업명, Run ID, 그룹 인라인 검색 (단축키: /)" autocomplete="off" />
+      <span class="search-shortcut-hint">/</span>
+    </div>
+
+    <!-- Right Controls -->
+    <div class="header-controls">
+      <div class="date-selector">
+        <label for="odateInput">ODATE:</label>
+        <input type="text" id="odateInput" value="20260916" maxlength="8" />
+      </div>
+      <div class="agent-status" id="agentBadge" title="연결된 에이전트 워커 수">
+        <span class="status-indicator"></span>
+        <span id="agentCountText">Agents: 0</span>
+      </div>
+
+      <!-- View Layout Mode Switcher -->
+      <div class="layout-mode-group" title="화면 분할 레이아웃 전환">
+        <button class="btn-layout-mode" id="btnViewFullDag" title="DAG 맵 100% 전체화면 (단축키: F)">⛶ DAG 맵</button>
+        <button class="btn-layout-mode active" id="btnViewSplit" title="50:50 듀얼 분할 모드">◫ 분할</button>
+        <button class="btn-layout-mode" id="btnViewFullTable" title="테이블 100% 전체화면 (단축키: T)">☰ 테이블</button>
+      </div>
+
+      <button class="btn btn-secondary btn-sm" id="btnRefresh" title="새로고침 (단축키: R)">⟳</button>
+      <button class="btn btn-sm btn-order-plan" id="btnOrderPlan" title="금일 전체 배치 계획 일괄 발주 (Order Plan)">📅 당일 계획 발주</button>
+      <button class="btn btn-primary btn-sm" id="btnNewJob">+ 새 배치 등록</button>
+    </div>
+  </header>
+
+  <!-- Slim Interactive Status Ribbon (32px) - Replaces 100px stats cards -->
+  <section class="status-ribbon">
+    <div class="ribbon-summary">
+      <span class="ribbon-chip chip-total active" data-filter="" title="전체 작업 보기">
+        <span class="chip-label">TOTAL</span>
+        <strong id="statTotal">0</strong>
+      </span>
+    </div>
+    <div class="ribbon-divider"></div>
+    <div class="ribbon-chips">
+      <span class="ribbon-chip chip-success" data-filter="SUCCESS" title="정상 완료 작업만 필터">
+        <span class="chip-dot dot-success"></span>
+        <span class="chip-label">SUCCESS</span>
+        <strong id="statSuccess">0</strong>
+      </span>
+      <span class="ribbon-chip chip-running" data-filter="RUNNING" title="현재 실행 중인 작업 필터">
+        <span class="chip-dot dot-running"></span>
+        <span class="chip-label">RUNNING</span>
+        <strong id="statRunning">0</strong>
+      </span>
+      <span class="ribbon-chip chip-ready" data-filter="READY" title="선행조건 충족/발주 대기 필터">
+        <span class="chip-dot dot-ready"></span>
+        <span class="chip-label">READY</span>
+        <strong id="statReady">0</strong>
+      </span>
+      <span class="ribbon-chip chip-wait" data-filter="WAIT" title="선행조건 대기 작업 필터">
+        <span class="chip-dot dot-wait"></span>
+        <span class="chip-label">WAIT</span>
+        <strong id="statWait">0</strong>
+      </span>
+      <span class="ribbon-chip chip-failed" data-filter="FAILED" title="오류/실패 작업만 모아보기">
+        <span class="chip-dot dot-failed"></span>
+        <span class="chip-label">FAILED</span>
+        <strong id="statFailed">0</strong>
+      </span>
+      <span class="ribbon-chip chip-bypass" data-filter="BYPASS" title="운영자 우회 작업 필터">
+        <span class="chip-dot dot-bypass"></span>
+        <span class="chip-label">BYPASS</span>
+        <strong id="statBypass">0</strong>
+      </span>
+    </div>
+    <div class="ribbon-reset" id="ribbonFilterInfo" style="display: none;">
+      <span id="activeFilterText">필터: FAILED</span>
+      <button class="btn-clear-filter" id="btnClearStateFilter" title="필터 해제">&times;</button>
+    </div>
+  </section>
+
+  <!-- Main Workload Console Area -->
+  <main class="main-content view-split" id="mainWorkspace">
+    <!-- Left: DAG Visual Canvas -->
+    <div class="panel canvas-panel" id="canvasPanel">
+      <div class="panel-header">
+        <div class="header-left-group">
+          <h2>워크플로우 선후행 관제 맵 (DAG Flow)</h2>
+          <div class="legend">
+            <span class="legend-item"><span class="badge-dot dot-wait"></span> WAIT</span>
+            <span class="legend-item"><span class="badge-dot dot-ready"></span> READY</span>
+            <span class="legend-item"><span class="badge-dot dot-running"></span> RUNNING</span>
+            <span class="legend-item"><span class="badge-dot dot-success"></span> SUCCESS</span>
+            <span class="legend-item"><span class="badge-dot dot-failed"></span> FAILED</span>
+            <span class="legend-item"><span class="badge-dot dot-bypass"></span> BYPASS</span>
+          </div>
+        </div>
+        <div class="header-toolbar">
+          <select id="filterGroup" class="select-canvas-filter" title="그룹 필터">
+            <option value="">전체 그룹</option>
+          </select>
+          <select id="filterState" class="select-canvas-filter" title="상태 필터">
+            <option value="">전체 상태</option>
+            <option value="WAIT">WAIT (대기)</option>
+            <option value="READY">READY (준비)</option>
+            <option value="RUNNING">RUNNING (실행)</option>
+            <option value="SUCCESS">SUCCESS (성공)</option>
+            <option value="FAILED">FAILED (실패)</option>
+            <option value="BYPASS">BYPASS (우회)</option>
+          </select>
+          <div class="canvas-zoom-buttons">
+            <button class="btn-canvas-tool" id="btnFitCanvas" title="화면 맞춤">⛶ 맞춤</button>
+            <button class="btn-canvas-tool" id="btnZoomIn" title="확대">＋</button>
+            <button class="btn-canvas-tool" id="btnZoomOut" title="축소">－</button>
+            <button class="btn-canvas-tool" id="btnZoomReset" title="100% 원복">1:1</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="canvas-viewport" id="dagCanvasViewport">
+        <div class="dag-transform-container" id="dagTransformContainer">
+          <!-- SVG Directed Edges Layer -->
+          <svg class="dag-svg-layer" id="dagSvgLayer">
+            <defs>
+              <marker id="arrow-satisfied" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#10b981"></path>
+              </marker>
+              <marker id="arrow-pending" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#f59e0b"></path>
+              </marker>
+              <marker id="arrow-upstream" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#fb923c"></path>
+              </marker>
+              <marker id="arrow-downstream" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#38bdf8"></path>
+              </marker>
+            </defs>
+            <g id="dagEdgesGroup"></g>
+          </svg>
+          <!-- HTML Nodes Layer -->
+          <div class="dag-nodes-layer" id="dagNodesLayer"></div>
+        </div>
+
+        <!-- Dependency Inspector Drawer (Slide-in) -->
+        <div class="dependency-inspector-drawer" id="depInspectorDrawer">
+          <div class="drawer-header">
+            <div class="drawer-title-box">
+              <span class="drawer-badge" id="inspectorBadge">WAIT</span>
+              <h3 id="inspectorJobName">Job Name</h3>
+            </div>
+            <button class="btn-close-drawer" id="btnCloseInspector" title="닫기">&times;</button>
+          </div>
+          <div class="drawer-body">
+            <div class="inspector-meta-grid">
+              <div><span class="meta-lbl">Def ID:</span> <code id="inspectorDefID">-</code></div>
+              <div><span class="meta-lbl">Run History:</span> <select id="inspectorRunSelect" style="background:#090d16; color:#38bdf8; border:1px solid #1e293b; border-radius:4px; font-family:'JetBrains Mono',monospace; font-size:11px; padding:1px 4px; max-width:145px;"></select></div>
+              <div><span class="meta-lbl">Group:</span> <span id="inspectorGroup" class="badge" style="background:#1e293b; padding:1px 5px; border-radius:3px;">-</span></div>
+              <div><span class="meta-lbl">Schedule:</span> <code id="inspectorCron">-</code></div>
+              <div><span class="meta-lbl">Agent:</span> <span id="inspectorAgent">-</span></div>
+              <div><span class="meta-lbl">Exit Code:</span> <code id="inspectorExitCode">-</code></div>
+              <div style="grid-column: span 2;"><span class="meta-lbl">Command:</span> <code id="inspectorCommand" style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="-">-</code></div>
+            </div>
+
+            <!-- Upstream In-Conditions -->
+            <div class="inspector-section">
+              <div class="inspector-sec-title">
+                <span>⬅ 필요 선행 조건 (In-Conditions)</span>
+                <span class="sec-counter" id="inCondCounter">0</span>
+              </div>
+              <div class="inspector-list" id="inspectorInCondList"></div>
+            </div>
+
+            <!-- Downstream Out-Conditions -->
+            <div class="inspector-section">
+              <div class="inspector-sec-title">
+                <span>➡ 완료 후 발행 조건 (Out-Conditions)</span>
+                <span class="sec-counter" id="outCondCounter">0</span>
+              </div>
+              <div class="inspector-list" id="inspectorOutCondList"></div>
+            </div>
+
+            <!-- Dependent Downstream Jobs -->
+            <div class="inspector-section">
+              <div class="inspector-sec-title">
+                <span>⚡ 영향받는 후행 작업 (Downstream Jobs)</span>
+                <span class="sec-counter" id="downstreamJobsCounter">0</span>
+              </div>
+              <div class="inspector-list" id="inspectorDownstreamJobsList"></div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="inspector-actions">
+              <button class="btn btn-primary btn-block" id="btnInspectorTrigger">⚡ 즉시 1회 실행</button>
+              <div class="action-btn-row">
+                <button class="btn btn-secondary" id="btnInspectorRerun">Rerun</button>
+                <button class="btn btn-secondary" id="btnInspectorSetOK">Set OK</button>
+                <button class="btn btn-secondary" id="btnInspectorBypass">Bypass</button>
+              </div>
+              <div class="action-btn-row" style="margin-top: 0.5rem;">
+                <button class="btn btn-secondary" id="btnInspectorEdit">상세/수정</button>
+                <button class="btn btn-secondary" id="btnInspectorLog">Sysout 로그</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: High-Density Unified Multi-Tab Workspace Panel -->
+    <div class="panel list-panel" id="listPanel">
+      <div class="panel-header tab-header">
+        <div class="tab-nav-bar">
+          <button class="tab-btn active" id="tabShowRuns" data-target="containerRuns">
+            <span class="tab-icon">📋</span> 실행 현황 <span class="tab-badge" id="tabBadgeRuns">0</span>
+          </button>
+          <button class="tab-btn" id="tabShowDefs" data-target="containerDefs">
+            <span class="tab-icon">📑</span> 배치 정의 <span class="tab-badge" id="tabBadgeDefs">0</span>
+          </button>
+          <button class="tab-btn" id="tabShowConds" data-target="containerConds">
+            <span class="tab-icon">🔗</span> 조건 관리 <span class="tab-badge" id="tabBadgeConds">0</span>
+          </button>
+          <button class="tab-btn" id="tabShowAudits" data-target="containerAudits">
+            <span class="tab-icon">🛡</span> 감사 추적 <span class="tab-badge" id="tabBadgeAudits">0</span>
+          </button>
+          <button class="tab-btn" id="tabShowAgents" data-target="containerAgents">
+            <span class="tab-icon">🖥</span> 에이전트 <span class="tab-badge" id="tabBadgeAgents">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 1: Runs Table (Compact High-Density) -->
+      <div class="table-container tab-content-pane active" id="containerRuns">
+        <table class="data-table" id="runsTable">
+          <thead>
+            <tr>
+              <th style="width: 85px;">상태</th>
+              <th>배치 작업명</th>
+              <th style="width: 130px;">Run ID</th>
+              <th style="width: 55px;">Exit</th>
+              <th style="width: 75px;">스케줄</th>
+              <th style="width: 175px;">작업 조치 (Actions)</th>
+            </tr>
+          </thead>
+          <tbody id="runsTableBody">
+            <tr><td colspan="6" class="loading-cell">데이터 로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab 2: Definitions Table -->
+      <div class="table-container tab-content-pane" id="containerDefs">
+        <table class="data-table" id="defsTable">
+          <thead>
+            <tr>
+              <th style="width: 110px;">Job ID</th>
+              <th>작업명</th>
+              <th style="width: 75px;">그룹</th>
+              <th style="width: 85px;">스케줄</th>
+              <th>실행 명령어</th>
+              <th style="width: 120px;">관리</th>
+            </tr>
+          </thead>
+          <tbody id="defsTableBody">
+            <tr><td colspan="6" class="loading-cell">정의 목록 로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab 3: Conditions Management Table (New!) -->
+      <div class="table-container tab-content-pane" id="containerConds">
+        <div class="sub-toolbar">
+          <div class="sub-toolbar-left">
+            <input type="text" id="inputNewCondName" class="form-control form-control-sm" placeholder="새 조건명 (예: MANUAL_APPROVE_OK)" />
+            <button class="btn btn-primary btn-sm" id="btnAddCondition">+ 조건 수동 발행</button>
+          </div>
+          <span class="sub-toolbar-hint">현재 영업일자(ODATE) 기준 발행된 조건 신호 목록</span>
+        </div>
+        <table class="data-table" id="condsTable">
+          <thead>
+            <tr>
+              <th>조건명 (Condition Name)</th>
+              <th style="width: 90px;">영업일자</th>
+              <th style="width: 160px;">발행 시각</th>
+              <th style="width: 80px;">관리</th>
+            </tr>
+          </thead>
+          <tbody id="condsTableBody">
+            <tr><td colspan="4" class="loading-cell">조건 로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab 4: Audit Trail Table (New!) -->
+      <div class="table-container tab-content-pane" id="containerAudits">
+        <div class="sub-toolbar">
+          <span class="sub-toolbar-hint">컴플라이언스 준수를 위한 운영자 긴급 조치(Set OK, Rerun, Bypass) 불변 감사 로그</span>
+        </div>
+        <table class="data-table" id="auditsTable">
+          <thead>
+            <tr>
+              <th style="width: 100px;">조치자 ID</th>
+              <th style="width: 90px;">구분</th>
+              <th style="width: 150px;">대상 작업 ID</th>
+              <th>조치 사유 (Reason)</th>
+              <th style="width: 160px;">기록 일시</th>
+            </tr>
+          </thead>
+          <tbody id="auditsTableBody">
+            <tr><td colspan="5" class="loading-cell">감사 로그 로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab 5: Agents Pool Status (New!) -->
+      <div class="table-container tab-content-pane" id="containerAgents">
+        <div class="sub-toolbar">
+          <span class="sub-toolbar-hint">실시간 연결된 워커 노드 및 CPU 슬롯 세마포어 가용 현황</span>
+        </div>
+        <table class="data-table" id="agentsTable">
+          <thead>
+            <tr>
+              <th>Agent ID</th>
+              <th>Hostname / IP</th>
+              <th style="width: 80px;">OS</th>
+              <th>매칭 라벨</th>
+              <th style="width: 120px;">동시 실행 슬롯</th>
+              <th style="width: 90px;">연결 상태</th>
+            </tr>
+          </thead>
+          <tbody id="agentsTableBody">
+            <tr><td colspan="6" class="loading-cell">에이전트 현황 로딩 중...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- Sysout Log Terminal Modal -->
+  <div class="modal" id="logModal">
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h3 id="logModalTitle">실시간 콘솔 출력 (Sysout Log)</h3>
+        <button class="btn-close" id="btnCloseLogModal">&times;</button>
+      </div>
+      <div class="modal-body terminal-body" id="logTerminal">
+        <div class="terminal-loader" id="terminalLoader">연결 대기 중...</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="btnClearLogs">지우기</button>
+        <button class="btn btn-secondary btn-sm" id="btnCopyLogs">로그 복사</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action Modal (Set OK / Bypass / Rerun) with Mandatory Audit Reason -->
+  <div class="modal" id="actionModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="actionModalTitle">수동 개입 긴급 조치</h3>
+        <button class="btn-close" id="btnCloseActionModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p id="actionModalDesc" class="action-desc"></p>
+        <input type="hidden" id="actionTargetRunID" />
+        <input type="hidden" id="actionType" />
+        
+        <div class="form-group">
+          <label for="operatorIDInput">작업자 사번 / ID <span class="required">*</span></label>
+          <input type="text" id="operatorIDInput" class="form-control" placeholder="예: operator_kim" />
+        </div>
+        <div class="form-group">
+          <label for="actionReasonInput">조치 사유 (감사 기록용 필수 입력) <span class="required">*</span></label>
+          <textarea id="actionReasonInput" class="form-control" rows="3" placeholder="예: 회계 결산 승인 확인 후 수동 정상 통과 조치"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="btnCancelAction">취소</button>
+        <button class="btn btn-danger btn-sm" id="btnConfirmAction">확인 및 실행</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Job Registration Modal -->
+  <div class="modal" id="newJobModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3>+ 신규 배치 작업 등록</h3>
+        <button class="btn-close" id="btnCloseNewJobModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="newJobName">배치 작업명 (Job Name) <span class="required">*</span></label>
+          <input type="text" id="newJobName" class="form-control" placeholder="예: D_SETTLE_CORE_01" required />
+        </div>
+        <div class="form-group">
+          <label for="newJobGroup">업무 그룹 (Group)</label>
+          <input type="text" id="newJobGroup" class="form-control" placeholder="비우면 DEFAULT (예: DAILY, MONTHEND)" />
+        </div>
+        <div class="form-group">
+          <label for="newJobCommand">실행 명령어 (Command) <span class="required">*</span></label>
+          <input type="text" id="newJobCommand" class="form-control" placeholder="예: /opt/batch/run.sh 또는 cd /data &amp;&amp; ./run.sh" required />
+        </div>
+        <div class="form-group">
+          <label for="newJobArgs">명령어 인자 (Args)</label>
+          <input type="text" id="newJobArgs" class="form-control" placeholder='비워 두기 권장. 예: -c "echo a; exit 0"' />
+        </div>
+        <div class="form-group">
+          <label for="newJobCron">스케줄 (Cron Expression)</label>
+          <input type="text" id="newJobCron" class="form-control" placeholder="메모용 (자동 실행되지 않음)" />
+        </div>
+        <div class="form-group">
+          <label for="newJobLabels">에이전트 매칭 라벨 (Agent Labels)</label>
+          <input type="text" id="newJobLabels" class="form-control" placeholder="쉼표 구분. 비우면 아무 에이전트" />
+        </div>
+        <div class="form-group">
+          <label for="newJobInConds">선행 조건 (In-Conditions, 쉼표 구분)</label>
+          <input type="text" id="newJobInConds" class="form-control" placeholder="예: PREV_BATCH_OK" />
+        </div>
+        <div class="form-group">
+          <label for="newJobOutConds">후행 조건 (Out-Conditions, 쉼표 구분)</label>
+          <input type="text" id="newJobOutConds" class="form-control" placeholder="완료 시 발행할 조건명 (예: SAL-030-OK)" />
+        </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+          <input type="checkbox" id="newJobRunNow" style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="newJobRunNow" style="margin-bottom: 0; cursor: pointer; font-weight: 600; color: #38bdf8;">
+            등록 즉시 ODATE 칸의 날짜로 1회 실행 (Run Now)
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary btn-sm" id="btnCancelNewJob">취소</button>
+        <button class="btn btn-primary btn-sm" id="btnSubmitNewJob">등록 및 저장</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Job Detail & Edit Modal -->
+  <div class="modal" id="jobDetailModal">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="jobDetailModalTitle">배치 작업 상세 정보 및 수정</h3>
+        <button class="btn-close" id="btnCloseJobDetailModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Job Definition ID</label>
+          <input type="text" id="editJobID" class="form-control" style="background:#0f172a; color:#94a3b8; font-family:'JetBrains Mono',monospace;" readonly />
+        </div>
+        <div class="form-group">
+          <label for="editJobName">배치 작업명 (Job Name) <span class="required">*</span></label>
+          <input type="text" id="editJobName" class="form-control" required />
+        </div>
+        <div class="form-group">
+          <label for="editJobGroup">업무 그룹 (Group)</label>
+          <input type="text" id="editJobGroup" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="editJobCommand">실행 명령어 (Command) <span class="required">*</span></label>
+          <input type="text" id="editJobCommand" class="form-control" required />
+        </div>
+        <div class="form-group">
+          <label for="editJobArgs">명령어 인자 (Args)</label>
+          <input type="text" id="editJobArgs" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="editJobCron">스케줄 (Cron Expression)</label>
+          <input type="text" id="editJobCron" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="editJobLabels">에이전트 매칭 라벨 (Agent Labels)</label>
+          <input type="text" id="editJobLabels" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="editJobInConds">선행 조건 (In-Conditions, 쉼표 구분)</label>
+          <input type="text" id="editJobInConds" class="form-control" />
+        </div>
+        <div class="form-group">
+          <label for="editJobOutConds">후행 조건 (Out-Conditions, 쉼표 구분)</label>
+          <input type="text" id="editJobOutConds" class="form-control" />
+        </div>
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.75rem;">
+          <input type="checkbox" id="editJobEnabled" style="width: 16px; height: 16px; cursor: pointer;" />
+          <label for="editJobEnabled" style="margin-bottom: 0; cursor: pointer;">배치 활성화 상태 (Enabled)</label>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <button class="btn btn-danger btn-sm" id="btnDeleteJob">삭제</button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-primary btn-sm" id="btnTriggerJob" style="background:#0284c7;">⚡ 즉시 1회 실행</button>
+          <button class="btn btn-primary btn-sm" id="btnSaveJob">수정 사항 저장</button>
+          <button class="btn btn-secondary btn-sm" id="btnCancelEditJob">닫기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=2.0.0"></script>
+</body>
+</html>
