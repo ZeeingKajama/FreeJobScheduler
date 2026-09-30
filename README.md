@@ -136,6 +136,7 @@ curl -fsS -X POST http://localhost:8080/api/v1/runs/order -H 'Content-Type: appl
 ## 문서
 
 - [USER_MANUAL.md](USER_MANUAL.md) — 설치, 운영, 캘린더, 장애 대응, API, 소스 구조까지 담은 사용 설명서 (현재 동작 기준 문서)
+- [README_EN.md](README_EN.md) / [USER_MANUAL_EN.md](USER_MANUAL_EN.md) — English documentation
 - [docs/](docs/) — 설계·계획 기록. 현재 동작과 다른 내용이 있을 수 있습니다
 
 ## 개발
